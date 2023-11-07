@@ -1,5 +1,5 @@
 import asyncio
-from typing import Any, Mapping, NamedTuple, Optional, Set
+from typing import Any, Awaitable, Callable, NamedTuple, Optional, Set, Tuple
 
 __all__ = ['MemcachePool']
 
@@ -9,14 +9,30 @@ class Connection(NamedTuple):
     writer: asyncio.StreamWriter
 
 
+Connector = Callable[..., Awaitable[Tuple[asyncio.StreamReader, asyncio.StreamWriter]]]
+
+
 class MemcachePool:
+
+    @classmethod
+    def unix(cls, path='/tmp/memcached.sock', **kwargs) -> 'MemcachePool':
+        kwargs['connector'] = asyncio.open_unix_connection
+        conn_args = kwargs.setdefault('conn_args', {})
+        conn_args['path'] = path
+        return cls(**kwargs)
+
     def __init__(self, host: str, port: int, *, minsize: int, maxsize: int,
-                 conn_args: Optional[Mapping[str, Any]] = None):
-        self._host = host
-        self._port = port
+                 conn_args: Optional[dict[str, Any]] = None,
+                 connector: Optional[Connector] = None):
+        self.conn_args = conn_args or {}
+        if not connector:
+            connector = asyncio.open_connection
+            self.conn_args['host'] = host
+            self.conn_args['port'] = port
+        self._connector = connector
+
         self._minsize = minsize
         self._maxsize = maxsize
-        self.conn_args = conn_args or {}
         self._pool: asyncio.Queue[Connection] = asyncio.Queue()
         self._in_use: Set[Connection] = set()
 
@@ -67,8 +83,7 @@ class MemcachePool:
 
     async def _create_new_conn(self) -> Optional[Connection]:
         if self.size() < self._maxsize:
-            reader, writer = await asyncio.open_connection(
-                self._host, self._port, **self.conn_args)
+            reader, writer = await self._connector(**self.conn_args)
             if self.size() < self._maxsize:
                 return Connection(reader, writer)
             else:

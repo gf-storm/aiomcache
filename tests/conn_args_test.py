@@ -11,10 +11,6 @@ from .conftest import McacheParams
 
 @pytest.mark.skipif(sys.version_info < (3, 8), reason="AsyncMock requires python3.8")
 async def test_params_forwarded_from_client() -> None:
-    client = Client("host", port=11211, conn_args={
-        "ssl": True, "ssl_handshake_timeout": 20
-    })
-
     with mock.patch(
         "asyncio.open_connection",
         return_value=(
@@ -23,6 +19,10 @@ async def test_params_forwarded_from_client() -> None:
         ),
         autospec=True,
     ) as oc:
+        client = Client("host", port=11211, conn_args={
+            "ssl": True, "ssl_handshake_timeout": 20
+        })
+
         await client._pool.acquire()
 
     oc.assert_called_with("host", 11211, ssl=True, ssl_handshake_timeout=20)
